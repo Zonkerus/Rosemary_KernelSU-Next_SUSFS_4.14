@@ -1,4 +1,4 @@
-name: Kernel Build
+name: Kernel Build 4.14
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       KERNEL_REPO:
         description: 'KERNEL_REPO'
         required: true
-        default: 'https://github.com/zainarbani/kernel-mtk'
+        default: 'https://github.com/mtkpapa/kernel-mtk'
       KERNEL_BRANCH:
         description: 'KERNEL_BRANCH'
         required: true
@@ -15,108 +15,129 @@ on:
         description: 'KERNEL_DEFCONFIG'
         required: true
         default: 'rosemary_defconfig'
-      KERNEL_HOTFIX:
-        description: 'KERNEL_HOTFIX'
-        required: false
-        default: 'N/A'
+      BOOT_IMG_URL:
+        description: 'BOOT_IMG_URL'
+        required: true
+        default: 'https://github.com/Zonkerus/Rosemary_KernelSU-Next_SUSFS_4.14/releases/download/boot/twn_boot.img'
 
 jobs:
   build:
-    if: github.event.repository.owner.id == github.event.sender.id
-    runs-on: buildjet-8vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
 
-    - name: Prepare Env
-      run: |
-        sudo apt update  &> /dev/null
-        sudo apt -y install gawk aria2 git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python2 python3 &> /dev/null
-        git config --global user.name "bot"
-        git config --global user.email "bot@email.com"
-        mkdir -p $GITHUB_WORKSPACE/project
-          
-    - name: Prepare TC
+    - name: №1
+      uses: pierotofy/set-swap-space@v1.0
+      with:
+        swap-size-gb: 16
+
+    - name: №2
       run: |
         mkdir -p $GITHUB_WORKSPACE/project/clang
         CLANG_URL=$(curl -Ls https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt)
-        aria2c $CLANG_URL &> /dev/null
+        aria2c $CLANG_URL
         tar -C $GITHUB_WORKSPACE/project/clang/ -zxf ${CLANG_URL##*/}
 
-    - name: Prepare Kernel
+    - name: №3
       run: |
         cd $GITHUB_WORKSPACE/project
-        git clone -b ${{ github.event.inputs.KERNEL_BRANCH }} ${{ github.event.inputs.KERNEL_REPO }} linux --recurse-submodules --depth=1 &> /dev/null
-        git clone -b master https://github.com/zainarbani/AnyKernel3 AnyKernel3 --depth=1 &> /dev/null
+        git clone -b ${{ github.event.inputs.KERNEL_BRANCH }} ${{ github.event.inputs.KERNEL_REPO }} linux --recurse-submodules --depth=1
+        git clone -b master https://github.com/Zonkerus/AnyKernel3 AnyKernel3 --depth=1
 
-    - name: Building Kernel
+    - name: №4
       run: |
-        cd $GITHUB_WORKSPACE/project/linux
-        PATH=$GITHUB_WORKSPACE/project/clang/bin:$PATH
-        export TZ="Asia/Jakarta"
-        export DATE=$(date "+%Y%m%d-%H%M")
-        echo "BUILD_DATE=$(date "+%Y%m%d%H%M")" >> $GITHUB_ENV
-        echo "KERNEL_VER=$(make kernelversion)" >> $GITHUB_ENV
-        echo "CLANG_VER=$(clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g')" >> $GITHUB_ENV
-        export ARCH=arm64
-        export KBUILD_BUILD_HOST=builder
-        export KBUILD_BUILD_USER=zainarbani
-        export KBUILD_COMPILER_STRING="$(clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')"
-        echo "-OverHeat-LTO" > localversion
-        make O=out ARCH=$ARCH ${{ github.event.inputs.KERNEL_DEFCONFIG }}
-        make -j$(nproc --all) O=out CC=clang ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 LD=ld.lld NM=llvm-nm AR=llvm-ar OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump
-        cp out/arch/arm64/boot/Image.gz-dtb $GITHUB_WORKSPACE/project/Image.gz-dtb
-        make clean
-        wget https://gist.githubusercontent.com/zainarbani/2b482e9e9c415a644953397b6ba5571f/raw/b66cf8d0683b5397fc1f7cc6b33ff12cc9bf9292/ksu.patch
-        git apply ksu.patch || exit
-        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
-        make O=out ARCH=$ARCH ${{ github.event.inputs.KERNEL_DEFCONFIG }}
-        make -j$(nproc --all) O=out CC=clang ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 LD=ld.lld NM=llvm-nm AR=llvm-ar OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump
-        cp out/arch/arm64/boot/Image.gz-dtb $GITHUB_WORKSPACE/project/Image.gz-dtb-ksu
+        LATEST_URL=$(curl -s https://api.github.com/repos/ccache/ccache/releases/latest | jq -r '.assets[] | select(.name | endswith("linux-x86_64.tar.xz")) | .browser_download_url')
 
-    - name: Prepare AK3
+        if [ -z "$LATEST_URL" ] || [ "$LATEST_URL" = "null" ]; then
+          echo "::error::Could not find the latest ccache download URL. Aborting."
+          exit 1
+        fi
+
+        echo "Latest ccache download URL: ${LATEST_URL}"
+
+        aria2c "$LATEST_URL" -o ccache-latest.tar.xz
+
+        tar -xf ccache-latest.tar.xz
+
+        sudo mv ccache-*-linux-x86_64/ccache /usr/local/bin/
+
+        rm -f ccache-latest.tar.xz
+        rm -rf ccache-*-linux-x86_64
+
+    - name: №5
+      uses: hendrikmuhs/ccache-action@v1
+      with:
+        key: ${{ runner.os }}-kernel-${{ github.event.inputs.KERNEL_BRANCH }}-${{ github.event.inputs.KERNEL_DEFCONFIG }}
+        max-size: 50G
+        variant: ccache
+
+    - name: №6
+      run: |
+        PATH=$GITHUB_WORKSPACE/project/clang/bin:$PATH
+
+        cd $GITHUB_WORKSPACE/project/linux
+        echo "-Zonkerus" > localversion
+        curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+
+        make O=out ARCH=arm64 ${{ github.event.inputs.KERNEL_DEFCONFIG }}
+
+        scripts/config --file out/.config -e KSU \
+          -e KSU_SUSFS_HAS_MAGIC_MOUNT \
+          -e KSU_SUSFS_SUS_PATH \
+          -e KSU_SUSFS_SUS_MOUNT \
+          -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+          -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
+          -e KSU_SUSFS_SUS_KSTAT \
+          -e KSU_SUSFS_SUS_OVERLAYFS \
+          -e KSU_SUSFS_TRY_UMOUNT \
+          -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
+          -e KSU_SUSFS_SPOOF_UNAME \
+          -e KSU_SUSFS_ENABLE_LOG \
+          -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+          -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+          -e KSU_SUSFS_OPEN_REDIRECT \
+          -e KSU_SUSFS_SUS_SU
+
+        make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CC="ccache clang" LLVM=1 LLVM_IAS=1 LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip HOSTCC="ccache clang" HOSTCXX="ccache clang++" KCFLAGS=-Wno-default-const-init-var-unsafe -j$(nproc --all)
+        
+        cp out/arch/arm64/boot/Image.gz-dtb $GITHUB_WORKSPACE/project/Image.gz-dtb
+
+    - name: №7
       run: |
         cd $GITHUB_WORKSPACE/project/AnyKernel3
         cp $GITHUB_WORKSPACE/project/Image.gz-dtb Image.gz-dtb
-        zip -r9 $GITHUB_WORKSPACE/project/OverHeat-dev.zip -- *
-        cp $GITHUB_WORKSPACE/project/Image.gz-dtb-ksu Image.gz-dtb
-        zip -r9 $GITHUB_WORKSPACE/project/OverHeat-dev-ksu.zip -- *
-        
-    - name: Upload Release
-      uses: softprops/action-gh-release@v1
+        zip -r9 $GITHUB_WORKSPACE/project/AnyKernel3.zip -- *
+
+    - name: №8
+      run: |
+        cd $GITHUB_WORKSPACE/project
+
+        MAGISK_URL=$(curl -sL "https://api.github.com/repos/topjohnwu/Magisk/releases/latest" | grep "browser_download_url" | grep ".apk" | cut -d '"' -f 4)
+
+        aria2c "$MAGISK_URL" -o Magisk.apk
+
+        unzip -j Magisk.apk "lib/x86_64/libmagiskboot.so" -d .
+        mv libmagiskboot.so magiskboot
+        chmod +x magiskboot
+
+        aria2c "${{ github.event.inputs.BOOT_IMG_URL }}" -o boot.img
+
+        ./magiskboot unpack boot.img
+        rm -f kernel kernel_dtb
+        mv Image.gz-dtb kernel
+        ./magiskboot repack boot.img
+        rm -f boot.img
+        mv new-boot.img ksu_boot.img
+
+    - name: №9
+      uses: actions/upload-artifact@v4
       with:
-        files: |
-          ${{ github.workspace }}/project/OverHeat-dev.zip
-          ${{ github.workspace }}/project/OverHeat-dev-ksu.zip
-        name: OverHeat-${{ env.BUILD_DATE }}
-        tag_name: ${{ env.BUILD_DATE }}
-        body: |
-          Repo: ${{ github.event.inputs.KERNEL_REPO }}
-          Branch: ${{ github.event.inputs.KERNEL_BRANCH }}
-          Config: ${{ github.event.inputs.KERNEL_DEFCONFIG }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: AnyKernel3
+        path: ${{ github.workspace }}/project/AnyKernel3.zip
 
-    - name: Update TG
-      uses: appleboy/telegram-action@master
+    - name: №10
+      uses: actions/upload-artifact@v4
       with:
-        to: ${{ secrets.CHAT_ID }}
-        token: ${{ secrets.BOT_TOKEN }}
-        format: html
-        disable_web_page_preview: true
-        message: |
-          <b>OverHeat-Kernel Update</b>
-
-          <b>Build Date: </b>${{ env.BUILD_DATE }}
-          
-          <a href="https://github.com/${{ github.repository }}/releases/tag/${{ env.BUILD_DATE }}">Download</a>
-          
-          <a href="${{ github.event.inputs.KERNEL_REPO }}/commits/${{ github.event.inputs.KERNEL_BRANCH }}">Changelogs</a>
-
-          <b>Hotfix:</b>
-          ${{ github.event.inputs.KERNEL_HOTFIX }}
-
-          <b>Config: </b>${{ github.event.inputs.KERNEL_DEFCONFIG }}
-          <b>Kernel Ver: </b>${{ env.KERNEL_VER }}
-          <b>Clang Ver: </b>${{ env.CLANG_VER }}
-          <b>Maintainer: </b>@AnotherZain
+        name: Boot
+        path: ${{ github.workspace }}/project/ksu_boot.img
